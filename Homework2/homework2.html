@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div style="float: right;">
+<div>
+zNear 1<input id="zNearSlider" type="range"
+ min="1" max="100" step="1" value="1" />
+ 100
+</div>
+<div>
+zFar 1<input id="zFarSlider" type="range"
+min="1" max="100" step="1" value="100" />
+ 100
+</div>
+<div>
+radius 1<input id="radiusSlider" type="range"
+min="1" max="100" step="1" value="30" />
+ 100
+</div>
+<div>
+theta -90<input id="thetaSlider" type="range"
+ min="-90" max="90" step="1" value="20" />
+ 90
+</div>
+<div>
+phi -180<input id="phiSlider" type="range"
+ min="-180" max="180" step="1" value="110" />
+ 180
+</div>
+<div>
+fov 10<input id="fovSlider" type="range"
+ min="10" max="120" step="1" value="45.0" />
+ 120
+</div>
+<div>
+aspect 0.5<input id="aspectSlider" type="range"
+ min="0.5" max="2" step="0.1" value="1" />
+ 2
+</div>
+<div>
+<button id = "Play">Play</button>
+
+<button id = "Reset">Reset</button>
+</div>
+</div>
+
+<canvas id="gl-canvas" width="512" height="512"> </canvas>
+
+<img id = "carpetTexture" src = "textureCarpet.png" hidden></img>
+<img id = "carpetNormal" src = "normalCarpet.png" hidden></img>
+<img id = "tableTexture" src = "textureTable.png" hidden></img>
+<img id = "tableNormal" src = "normalTable.png" hidden></img>
+<img id = "bodyNormal" src = "normalBody.png" hidden></img>
+<img id = "bodyTexture" src = "textureBody.jpg" hidden></img>
+<img id = "faceTexture" src = "textureFace.png" hidden></img>
+
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+#version 300 es
+
+in vec4 aPosition;
+in vec4 aNormal;
+in vec4 aTangent;
+in vec2 aTexCoord;
+
+out vec2 vTexCoord;
+out vec3 L, V, verNN;
+
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform mat4 uRotationMatrix;
+uniform mat3 uNormalMatrix;
+
+uniform vec4 uLightPosition;
+
+uniform bool uCarpetFlag, uBodyFlag, uTableFlag;
+
+void main()
+{
+
+    gl_Position = uProjectionMatrix * uModelViewMatrix * uRotationMatrix * aPosition;
+
+    vec3 eyePosition = (uModelViewMatrix*uRotationMatrix*aPosition).xyz;
+    vec3 eyeLightPos = (uModelViewMatrix*uLightPosition).xyz;
+
+    vec3 N;
+    vec3 T;
+    if(uBodyFlag || uCarpetFlag || uTableFlag){
+        N = normalize(uNormalMatrix * (uRotationMatrix * aNormal).xyz);
+        T = normalize(uNormalMatrix * (uRotationMatrix * aTangent).xyz);    
+    } else {
+        N = normalize((uModelViewMatrix * uRotationMatrix * aNormal).xyz);
+        T = normalize((uModelViewMatrix * uRotationMatrix * aTangent).xyz);
+        verNN = normalize((uModelViewMatrix * uRotationMatrix * aNormal).xyz);
+    }
+
+    vec3 B = cross(N, T);
+    V = normalize(-eyePosition);
+
+    if(uBodyFlag || uCarpetFlag || uTableFlag){
+        L = normalize(vec3(dot(T, eyeLightPos - eyePosition), dot(B, eyeLightPos - eyePosition), dot(N, eyeLightPos - eyePosition)));
+    } else {
+        L = normalize(eyeLightPos - eyePosition);
+    }
+
+    vTexCoord = aTexCoord;
+
+}
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+#version 300 es
+
+precision mediump float;
+
+in vec3 L, V, verNN;
+in vec2 vTexCoord;
+
+out vec4 fColor;
+
+uniform sampler2D uBumpMapCarpet;
+uniform sampler2D uTextureCarpet; 
+uniform sampler2D uBumpMapBody; 
+uniform sampler2D uTextureFace; 
+uniform sampler2D uTextureBody;
+uniform sampler2D uTextureTable;
+uniform sampler2D uBumpMapTable;
+
+uniform bool uCarpetFlag;
+uniform bool uBodyFlag;
+uniform bool uFaceFlag;
+uniform bool uTableFlag;
+
+uniform vec4 uAmbientProduct;
+uniform vec4 uDiffuseProduct; 
+uniform vec4 uSpecularProduct;
+
+uniform float uShininess;
+
+void main()
+{
+
+    vec3 NN;
+    if(uBodyFlag){
+        vec4 N = texture(uBumpMapBody, vTexCoord);
+        NN =  normalize(2.0*N.xyz-1.0);
+    } else if(uCarpetFlag){
+        vec4 N = texture(uBumpMapCarpet, vTexCoord);
+        NN =  normalize(2.0*N.xyz-1.0);
+    } else if(uTableFlag){
+        vec4 N = texture(uBumpMapTable, vTexCoord);
+        NN =  normalize(2.0*N.xyz-1.0);
+    } else {
+        NN = verNN;
+    }
+
+    vec3 LL = normalize(L);
+    float Kd = max(dot(NN, LL), 0.0);
+    vec3 H = normalize(L + V);
+    vec4 ambient = uAmbientProduct;
+    vec4 diffuse = Kd*uDiffuseProduct;
+    float Ks = pow(max(dot(NN, H), 0.0), uShininess);
+    vec4 specular = Ks * uSpecularProduct;
+    if( dot(H, NN) < 0.0 ) {
+	specular = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    
+    if(uBodyFlag) {
+        fColor =  (ambient + diffuse + specular) * texture(uTextureBody, vTexCoord);
+    }else if(uFaceFlag) {
+        fColor =  (ambient + diffuse + specular) * texture(uTextureFace, vTexCoord);
+    }else if(uCarpetFlag){
+        fColor =  (ambient + diffuse + specular) * texture(uTextureCarpet, vTexCoord);
+    }else if(uTableFlag){
+        fColor =  (ambient + diffuse + specular) * texture(uTextureTable, vTexCoord);
+    } else {
+        fColor =  (ambient + diffuse + specular) * texture(uTextureCarpet, vTexCoord);
+    }
+
+}
+</script>
+
+<script src="../Common/initShaders.js"></script>
+<script src="../Common/MVnew.js"></script>
+<script src="homework2.js"></script>
+
+</body>
+</html>
